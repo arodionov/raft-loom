@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.example.loomservlet;
+package org.loomservlet;
 
 
 import java.util.concurrent.Executor;
@@ -35,7 +35,7 @@ public class GlobalThreadFactory implements ThreadFactory {
 			.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
 	public static boolean useVirtualThreads = Boolean
-			.parseBoolean(System.getProperty("virtualThreads", "false"));
+			.parseBoolean(System.getProperty("virtualThreads", "true"));
 
 	// Just to record some stats.
 	public static AtomicLong threadsCreated = new AtomicLong();
@@ -49,55 +49,74 @@ public class GlobalThreadFactory implements ThreadFactory {
 		this.daemon = daemon;
 	}
 
-	static void customize(Thread.Builder builder) {
-
-		// Note that VirtualThreads can't have a ThreadGroup
-		if (useVirtualThreads) {
-			builder.virtual(host);
-		}
-	}
+//	static void customize(Thread.Builder builder) {
+//
+//		// Note that VirtualThreads can't have a ThreadGroup
+//		if (useVirtualThreads) {
+//			builder = Thread.ofVirtual();
+//		}
+//	}
 
 	public static Thread create(Runnable runnable, String name) {
 
-		Thread.Builder builder = Thread.builder().name(name).task(runnable);
-		customize(builder);
-		return doBuild(builder);
+		Thread.Builder tb = Thread.ofPlatform();
+		Thread newThread = tb.factory().newThread(runnable);
+		newThread.setName(name);
+		return newThread;
 	}
 
 	public static Thread create(Runnable runnable, String name, int threadPriority, boolean daemon) {
 
-		Thread.Builder builder = Thread.builder().name(name).task(runnable)
-				.priority(threadPriority).daemon(daemon);
-		customize(builder);
-		return doBuild(builder);
+		Thread.Builder tb = Thread.ofVirtual();
+		Thread newThread = tb.factory().newThread(runnable);
+		//newThread.setDaemon(daemon);
+		newThread.setName(name);
+		newThread.setPriority(threadPriority);
+
+		return newThread;
+
+//		Thread.Builder builder = Thread.builder().name(name).task(runnable)
+//				.priority(threadPriority).daemon(daemon);
+//		customize(builder);
+//		return doBuild(builder);
 	}
+
+//
+//	private static Thread doBuild(Thread.Builder builder) {
+//
+//		Thread thread = builder.build();
+//
+//		if (useVirtualThreads) {
+//			System.out.println("VirtualThread: " + threadsCreated
+//					.incrementAndGet() + " -> " + thread.getName());
+//		}
+//		else {
+//			System.out.println("Thread: " + threadsCreated
+//					.incrementAndGet() + " -> " + thread.getName());
+//		}
+//		return thread;
+//	}
+//
+//	@Override
+//	public Thread newThread(Runnable runnable) {
+//
+//		Thread.Builder builder = Thread.builder()
+//				.name(threadName + "-" + threadCounter.incrementAndGet())
+//				.task(runnable)
+//				.daemon(daemon);
+//
+//		customize(builder);
+//
+//		return doBuild(builder);
+//	}
 
 	@Override
 	public Thread newThread(Runnable runnable) {
-
-		Thread.Builder builder = Thread.builder()
-				.name(threadName + "-" + threadCounter.incrementAndGet())
-				.task(runnable)
-				.daemon(daemon);
-
-		customize(builder);
-
-		return doBuild(builder);
-	}
-
-	private static Thread doBuild(Thread.Builder builder) {
-
-		Thread thread = builder.build();
-
-		if (useVirtualThreads) {
-			System.out.println("VirtualThread: " + threadsCreated
-					.incrementAndGet() + " -> " + thread.getName());
-		}
-		else {
-			System.out.println("Thread: " + threadsCreated
-					.incrementAndGet() + " -> " + thread.getName());
-		}
-		return thread;
+		Thread.Builder tb = Thread.ofVirtual();
+		Thread newThread = tb.factory().newThread(runnable);
+		//newThread.setDaemon(daemon);
+		newThread.setName(threadName + "-" + threadCounter.incrementAndGet());
+		return newThread;
 	}
 
 }

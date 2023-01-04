@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.example.loomservlet.GlobalThreadFactory;
+import org.loomservlet.GlobalThreadFactory;
 import org.apache.tomcat.util.res.StringManager;
 
 /**

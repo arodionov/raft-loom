@@ -112,10 +112,10 @@ public class VirtualTomcatExecutor implements TomcatExecutor {
 		return delegate.invokeAll(tasks);
 	}
 
-	@Override
-	public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks, boolean cancelOnException) throws InterruptedException {
-		return delegate.invokeAll(tasks, cancelOnException);
-	}
+//	@Override
+//	public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks, boolean cancelOnException) throws InterruptedException {
+//		return delegate.invokeAll(tasks, cancelOnException);
+//	}
 
 	@Override
 	public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks, long timeout, TimeUnit unit) throws InterruptedException {
@@ -137,20 +137,20 @@ public class VirtualTomcatExecutor implements TomcatExecutor {
 		delegate.close();
 	}
 
-	@Override
-	public ExecutorService withDeadline(Instant deadline) {
-		return delegate.withDeadline(deadline);
-	}
-
-	@Override
-	public <T> CompletableFuture<T> submitTask(Callable<T> task) {
-		return delegate.submitTask(task);
-	}
-
-	@Override
-	public <T> List<CompletableFuture<T>> submitTasks(Collection<? extends Callable<T>> tasks) {
-		return delegate.submitTasks(tasks);
-	}
+//	@Override
+//	public ExecutorService withDeadline(Instant deadline) {
+//		return delegate.withDeadline(deadline);
+//	}
+//
+//	@Override
+//	public <T> CompletableFuture<T> submitTask(Callable<T> task) {
+//		return delegate.submitTask(task);
+//	}
+//
+//	@Override
+//	public <T> List<CompletableFuture<T>> submitTasks(Collection<? extends Callable<T>> tasks) {
+//		return delegate.submitTasks(tasks);
+//	}
 
 	@Override
 	public void execute(Runnable command) {

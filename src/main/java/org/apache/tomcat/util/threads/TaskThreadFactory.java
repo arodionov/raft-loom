@@ -20,7 +20,7 @@ import java.security.PrivilegedAction;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.example.loomservlet.GlobalThreadFactory;
+import org.loomservlet.GlobalThreadFactory;
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
 import org.apache.tomcat.util.security.PrivilegedSetTccl;

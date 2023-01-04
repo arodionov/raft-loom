@@ -24,7 +24,7 @@ import java.util.stream.Collectors;
 
 import javax.naming.NamingException;
 
-import com.example.loomservlet.GlobalThreadFactory;
+import org.loomservlet.GlobalThreadFactory;
 import org.apache.catalina.Container;
 import org.apache.catalina.Context;
 import org.apache.catalina.Engine;
@@ -193,7 +193,7 @@ public class TomcatWebServer implements WebServer {
 	private void startDaemonAwaitThread() {
 		Thread awaitThread = GlobalThreadFactory.create(() -> TomcatWebServer.this.tomcat.getServer().await(), "container-" + (containerCounter.get()));
 		awaitThread.setContextClassLoader(getClass().getClassLoader());
-		awaitThread.setDaemon(false);
+		//awaitThread.setDaemon(false);
 		awaitThread.start();
 	}
 

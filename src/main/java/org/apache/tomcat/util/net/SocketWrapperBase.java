@@ -1,17 +1,18 @@
 /*
- * Copyright 2020 the original author or authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *  Licensed to the Apache Software Foundation (ASF) under one or more
+ *  contributor license agreements.  See the NOTICE file distributed with
+ *  this work for additional information regarding copyright ownership.
+ *  The ASF licenses this file to You under the Apache License, Version 2.0
+ *  (the "License"); you may not use this file except in compliance with
+ *  the License.  You may obtain a copy of the License at
  *
  *      http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
  */
 package org.apache.tomcat.util.net;
 
@@ -28,7 +29,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.juli.logging.Log;
 import org.apache.juli.logging.LogFactory;
@@ -38,8 +39,6 @@ import org.apache.tomcat.util.res.StringManager;
 public abstract class SocketWrapperBase<E> {
 
     private static final Log log = LogFactory.getLog(SocketWrapperBase.class);
-
-    public final ReentrantLock lock = new ReentrantLock();
 
     protected static final StringManager sm = StringManager.getManager(SocketWrapperBase.class);
 
@@ -52,6 +51,8 @@ public abstract class SocketWrapperBase<E> {
     // thread to the thread checking the timeout.
     private volatile long readTimeout = -1;
     private volatile long writeTimeout = -1;
+
+    protected volatile IOException previousIOException = null;
 
     private volatile int keepAliveLeft = 100;
     private volatile boolean upgraded = false;
@@ -106,10 +107,12 @@ public abstract class SocketWrapperBase<E> {
     protected volatile OperationState<?> writeOperation = null;
 
     /**
-     * The org.apache.coyote.Processor instance currently associated
-     * with the wrapper.
+     * The org.apache.coyote.Processor instance currently associated with the
+     * wrapper. Only populated when required to maintain wrapper<->Processor
+     * mapping between calls to
+     * {@link AbstractEndpoint.Handler#process(SocketWrapperBase, SocketEvent)}.
      */
-    protected Object currentProcessor = null;
+    private final AtomicReference<Object> currentProcessor = new AtomicReference<>();
 
     public SocketWrapperBase(E socket, AbstractEndpoint<E,?> endpoint) {
         this.socket = socket;
@@ -136,11 +139,15 @@ public abstract class SocketWrapperBase<E> {
     }
 
     public Object getCurrentProcessor() {
-        return currentProcessor;
+        return currentProcessor.get();
     }
 
     public void setCurrentProcessor(Object currentProcessor) {
-        this.currentProcessor = currentProcessor;
+        this.currentProcessor.set(currentProcessor);
+    }
+
+    public Object takeCurrentProcessor() {
+        return currentProcessor.getAndSet(null);
     }
 
     /**
@@ -818,7 +825,27 @@ public abstract class SocketWrapperBase<E> {
      */
     public abstract void doClientAuth(SSLSupport sslSupport) throws IOException;
 
-    public abstract SSLSupport getSslSupport(String clientCertProvider);
+    /**
+     * Obtain an SSLSupport instance for this socket.
+     *
+     * @param clientCertProvider The name of the client certificate provider to
+     *                           use. Only used by APR/native.
+     *
+     * @return An SSLSupport instance for this socket.
+     *
+     * @deprecated Will be removed in Tomcat 10.1.x onwards
+     */
+    @Deprecated
+    public SSLSupport getSslSupport(String clientCertProvider) {
+        return getSslSupport();
+    }
+
+    /**
+     * Obtain an SSLSupport instance for this socket.
+     *
+     * @return An SSLSupport instance for this socket.
+     */
+    public abstract SSLSupport getSslSupport();
 
 
     // ------------------------------------------------------- NIO 2 style APIs
@@ -902,7 +929,7 @@ public abstract class SocketWrapperBase<E> {
          * @return The call, if any, to make to the completion handler
          */
         public CompletionHandlerCall callHandler(CompletionState state, ByteBuffer[] buffers,
-                int offset, int length);
+                                                 int offset, int length);
     }
 
     /**
@@ -913,7 +940,7 @@ public abstract class SocketWrapperBase<E> {
     public static final CompletionCheck COMPLETE_WRITE = new CompletionCheck() {
         @Override
         public CompletionHandlerCall callHandler(CompletionState state, ByteBuffer[] buffers,
-                int offset, int length) {
+                                                 int offset, int length) {
             for (int i = 0; i < length; i++) {
                 if (buffers[offset + i].hasRemaining()) {
                     return CompletionHandlerCall.CONTINUE;
@@ -931,7 +958,7 @@ public abstract class SocketWrapperBase<E> {
     public static final CompletionCheck COMPLETE_WRITE_WITH_COMPLETION = new CompletionCheck() {
         @Override
         public CompletionHandlerCall callHandler(CompletionState state, ByteBuffer[] buffers,
-                int offset, int length) {
+                                                 int offset, int length) {
             for (int i = 0; i < length; i++) {
                 if (buffers[offset + i].hasRemaining()) {
                     return CompletionHandlerCall.CONTINUE;
@@ -949,7 +976,7 @@ public abstract class SocketWrapperBase<E> {
     public static final CompletionCheck READ_DATA = new CompletionCheck() {
         @Override
         public CompletionHandlerCall callHandler(CompletionState state, ByteBuffer[] buffers,
-                int offset, int length) {
+                                                 int offset, int length) {
             return (state == CompletionState.DONE) ? CompletionHandlerCall.DONE
                     : CompletionHandlerCall.NONE;
         }
@@ -973,7 +1000,6 @@ public abstract class SocketWrapperBase<E> {
      * Internal state tracker for vectored operations.
      */
     protected abstract class OperationState<A> implements Runnable {
-        public final ReentrantLock lock = new ReentrantLock();
         protected final boolean read;
         protected final ByteBuffer[] buffers;
         protected final int offset;
@@ -988,9 +1014,9 @@ public abstract class SocketWrapperBase<E> {
         protected final VectoredIOCompletionHandler<A> completion;
         protected final AtomicBoolean callHandler;
         protected OperationState(boolean read, ByteBuffer[] buffers, int offset, int length,
-                BlockingMode block, long timeout, TimeUnit unit, A attachment,
-                CompletionCheck check, CompletionHandler<Long, ? super A> handler,
-                Semaphore semaphore, VectoredIOCompletionHandler<A> completion) {
+                                 BlockingMode block, long timeout, TimeUnit unit, A attachment,
+                                 CompletionCheck check, CompletionHandler<Long, ? super A> handler,
+                                 Semaphore semaphore, VectoredIOCompletionHandler<A> completion) {
             this.read = read;
             this.buffers = buffers;
             this.offset = offset;
@@ -1074,12 +1100,16 @@ public abstract class SocketWrapperBase<E> {
                 }
                 if (complete) {
                     boolean notify = false;
-                    state.semaphore.release();
                     if (state.read) {
                         readOperation = null;
                     } else {
                         writeOperation = null;
                     }
+                    // Semaphore must be released after [read|write]Operation is cleared
+                    // to ensure that the next thread to hold the semaphore hasn't
+                    // written a new value to [read|write]Operation by the time it is
+                    // cleared.
+                    state.semaphore.release();
                     if (state.block == BlockingMode.BLOCK && currentState != CompletionState.INLINE) {
                         notify = true;
                     } else {
@@ -1089,24 +1119,16 @@ public abstract class SocketWrapperBase<E> {
                     if (completion && state.handler != null && state.callHandler.compareAndSet(true, false)) {
                         state.handler.completed(Long.valueOf(state.nBytes), state.attachment);
                     }
-                    state.lock.lock();
-                    try {
+                    synchronized (state) {
                         state.completionDone = true;
                         if (notify) {
                             state.state = currentState;
                             state.notify();
                         }
                     }
-                    finally {
-                        state.lock.unlock();
-                    }
                 } else {
-                    state.lock.lock();
-                    try {
+                    synchronized (state) {
                         state.completionDone = true;
-                    }
-                    finally {
-                        state.lock.unlock();
                     }
                     state.run();
                 }
@@ -1123,12 +1145,16 @@ public abstract class SocketWrapperBase<E> {
             }
             setError(ioe);
             boolean notify = false;
-            state.semaphore.release();
             if (state.read) {
                 readOperation = null;
             } else {
                 writeOperation = null;
             }
+            // Semaphore must be released after [read|write]Operation is cleared
+            // to ensure that the next thread to hold the semaphore hasn't
+            // written a new value to [read|write]Operation by the time it is
+            // cleared.
+            state.semaphore.release();
             if (state.block == BlockingMode.BLOCK) {
                 notify = true;
             } else {
@@ -1138,15 +1164,12 @@ public abstract class SocketWrapperBase<E> {
             if (state.handler != null && state.callHandler.compareAndSet(true, false)) {
                 state.handler.failed(exc, state.attachment);
             }
-            state.lock.lock();
-            try {
+            synchronized (state) {
                 state.completionDone = true;
                 if (notify) {
                     state.state = state.isInline() ? CompletionState.ERROR : CompletionState.DONE;
                     state.notify();
                 }
-            } finally {
-                state.lock.unlock();
             }
         }
     }
@@ -1243,7 +1266,7 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState read(long timeout, TimeUnit unit, A attachment,
-            CompletionHandler<Long, ? super A> handler, ByteBuffer... dsts) {
+                                          CompletionHandler<Long, ? super A> handler, ByteBuffer... dsts) {
         if (dsts == null) {
             throw new IllegalArgumentException();
         }
@@ -1271,8 +1294,8 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState read(BlockingMode block, long timeout,
-            TimeUnit unit, A attachment, CompletionCheck check,
-            CompletionHandler<Long, ? super A> handler, ByteBuffer... dsts) {
+                                          TimeUnit unit, A attachment, CompletionCheck check,
+                                          CompletionHandler<Long, ? super A> handler, ByteBuffer... dsts) {
         if (dsts == null) {
             throw new IllegalArgumentException();
         }
@@ -1302,8 +1325,8 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState read(ByteBuffer[] dsts, int offset, int length,
-            BlockingMode block, long timeout, TimeUnit unit, A attachment,
-            CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
+                                          BlockingMode block, long timeout, TimeUnit unit, A attachment,
+                                          CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
         return vectoredOperation(true, dsts, offset, length, block, timeout, unit, attachment, check, handler);
     }
 
@@ -1324,7 +1347,7 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState write(long timeout, TimeUnit unit, A attachment,
-            CompletionHandler<Long, ? super A> handler, ByteBuffer... srcs) {
+                                           CompletionHandler<Long, ? super A> handler, ByteBuffer... srcs) {
         if (srcs == null) {
             throw new IllegalArgumentException();
         }
@@ -1353,8 +1376,8 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState write(BlockingMode block, long timeout,
-            TimeUnit unit, A attachment, CompletionCheck check,
-            CompletionHandler<Long, ? super A> handler, ByteBuffer... srcs) {
+                                           TimeUnit unit, A attachment, CompletionCheck check,
+                                           CompletionHandler<Long, ? super A> handler, ByteBuffer... srcs) {
         if (srcs == null) {
             throw new IllegalArgumentException();
         }
@@ -1385,8 +1408,8 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     public final <A> CompletionState write(ByteBuffer[] srcs, int offset, int length,
-            BlockingMode block, long timeout, TimeUnit unit, A attachment,
-            CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
+                                           BlockingMode block, long timeout, TimeUnit unit, A attachment,
+                                           CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
         return vectoredOperation(false, srcs, offset, length, block, timeout, unit, attachment, check, handler);
     }
 
@@ -1415,9 +1438,9 @@ public abstract class SocketWrapperBase<E> {
      * @return the completion state (done, done inline, or still pending)
      */
     protected final <A> CompletionState vectoredOperation(boolean read,
-            ByteBuffer[] buffers, int offset, int length,
-            BlockingMode block, long timeout, TimeUnit unit, A attachment,
-            CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
+                                                          ByteBuffer[] buffers, int offset, int length,
+                                                          BlockingMode block, long timeout, TimeUnit unit, A attachment,
+                                                          CompletionCheck check, CompletionHandler<Long, ? super A> handler) {
         IOException ioe = getError();
         if (ioe != null) {
             handler.failed(ioe, attachment);
@@ -1463,36 +1486,44 @@ public abstract class SocketWrapperBase<E> {
         }
         state.start();
         if (block == BlockingMode.BLOCK) {
-            state.lock.lock();
-            try {
+            synchronized (state) {
                 if (state.state == CompletionState.PENDING) {
                     try {
                         state.wait(unit.toMillis(timeout));
                         if (state.state == CompletionState.PENDING) {
                             if (handler != null && state.callHandler.compareAndSet(true, false)) {
-                                handler.failed(new SocketTimeoutException(), attachment);
+                                handler.failed(new SocketTimeoutException(getTimeoutMsg(read)), attachment);
                             }
                             return CompletionState.ERROR;
                         }
                     } catch (InterruptedException e) {
                         if (handler != null && state.callHandler.compareAndSet(true, false)) {
-                            handler.failed(new SocketTimeoutException(), attachment);
+                            handler.failed(new SocketTimeoutException(getTimeoutMsg(read)), attachment);
                         }
                         return CompletionState.ERROR;
                     }
                 }
-            } finally {
-                state.lock.unlock();
             }
         }
         return state.state;
     }
 
+
+    private String getTimeoutMsg(boolean read) {
+        if (read) {
+            return sm.getString("socketWrapper.readTimeout");
+        } else {
+            return sm.getString("socketWrapper.writeTimeout");
+        }
+    }
+
+
     protected abstract <A> OperationState<A> newOperationState(boolean read,
-            ByteBuffer[] buffers, int offset, int length,
-            BlockingMode block, long timeout, TimeUnit unit, A attachment,
-            CompletionCheck check, CompletionHandler<Long, ? super A> handler,
-            Semaphore semaphore, VectoredIOCompletionHandler<A> completion);
+                                                               ByteBuffer[] buffers, int offset, int length,
+                                                               BlockingMode block, long timeout, TimeUnit unit, A attachment,
+                                                               CompletionCheck check, CompletionHandler<Long, ? super A> handler,
+                                                               Semaphore semaphore, VectoredIOCompletionHandler<A> completion);
+
 
     // --------------------------------------------------------- Utility methods
 
